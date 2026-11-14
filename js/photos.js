@@ -206,6 +206,13 @@ const Photos = (function () {
     if (busy) return;
     clearTimeout(timer);
     if (!queue.length) { settle(0); return; }
+    // The Drive folder is named after the person, so hold on until the name is typed.
+    const c = ctx();
+    if (!String(c.name || "").trim() || c.typingName) {
+      timer = setTimeout(kick, 1200);
+      settle(pendingCount());
+      return;
+    }
     busy = true;
     const op = queue[0];
     try {
@@ -356,7 +363,7 @@ const Photos = (function () {
 
   function statusText(it) {
     switch (it.state) {
-      case "queued": return T.waiting;
+      case "queued": return String(ctx().name || "").trim() ? T.waiting : T.needName;
       case "processing": return T.processing;
       case "uploading": return T.uploading;
       case "done": return T.done;

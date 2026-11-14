@@ -20,11 +20,12 @@
     pos: null,
     dir: 1,
     dirty: false,
+    lastSec: null,
     started: false,
   };
 
   // What is on screen right now: conditional blocks, required questions, the Next button and its hint, timers.
-  let live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0, item: null };
+  let live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0 };
 
   /* ================= helpers ================= */
 
@@ -110,7 +111,17 @@
 
   /* ================= answers ================= */
 
+  /* Which section each answer belongs to, so a save can go out when someone moves on to the next one. */
+  const SEC_OF = {};
+  SECTIONS.forEach((sec) => sec.groups.forEach((g) => (g.questions || []).forEach((q) => {
+    SEC_OF[q.id] = sec.id;
+    if (q.otherKey) SEC_OF[q.otherKey] = sec.id;
+  })));
+
   function setA(id, v) {
+    const sec = SEC_OF[id];
+    if (S.dirty && S.lastSec && sec !== S.lastSec) saveRemote();  // the previous section is done: push it
+    S.lastSec = sec;
     if (isEmpty(v)) delete S.answers[id];
     else S.answers[id] = v;
     S.dirty = true;
@@ -118,13 +129,12 @@
     refresh();
   }
 
-  function visibleSections() {
-    return SECTIONS.filter((s) => !s.when || s.when(S.answers));
-  }
-
-  /* One page per section, for the current answers. */
+  /* The pages, each with its sections (hidden ones included: they are toggled live). */
   function pages() {
-    return visibleSections().map((sec, si) => ({ sec, si, key: sec.id }));
+    return PAGES.map((ids, i) => ({
+      key: "p" + (i + 1), i, ids,
+      secs: ids.map((id) => SECTIONS.find((x) => x.id === id)),
+    }));
   }
 
   function optionVisible(o) { return !o.when || o.when(S.answers); }
@@ -190,8 +200,8 @@
   function setHeader(item, total) {
     if (!item) { $top.hidden = true; return; }
     $top.hidden = false;
-    const pct = Math.round(((item.si + 0.5) / total) * 100);
-    $counter.textContent = COPY.counter(item.si + 1, total);
+    const pct = Math.round(((item.i + 0.5) / total) * 100);
+    $counter.textContent = COPY.counter(item.i + 1, total);
     $fill.style.width = pct + "%";
     $bar.setAttribute("aria-valuenow", String(pct));
   }
@@ -205,7 +215,7 @@
 
   function clearLive() {
     live.timers.forEach((t) => clearInterval(t));
-    live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0, item: null };
+    live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0 };
   }
 
   function show(screen) {
@@ -220,7 +230,6 @@
 
   function refresh() {
     live.conds.forEach((c) => { c.el.hidden = !c.when(S.answers); });
-    if (live.item) setHeader(live.item, pages().length);  // an answer can add or drop a section
     const miss = missing();
     if (live.next) live.next.disabled = !!miss;
     if (live.hint) {
@@ -246,14 +255,14 @@
   function label(q, id) {
     return h("label", { class: "q-label", for: id, id: id + "-l" }, [
       q.label,
-      q.required ? h("span", { class: "req", "aria-hidden": "true", text: " *" }) : null,
+      q.required ? h("span", { class: "req", "aria-hidden": "true", text: "\u00a0*" }) : null,
     ]);
   }
 
   function groupLabel(q, id) {
     return h("div", { class: "q-label", id: id }, [
       q.label,
-      q.required ? h("span", { class: "req", "aria-hidden": "true", text: " *" }) : null,
+      q.required ? h("span", { class: "req", "aria-hidden": "true", text: "\u00a0*" }) : null,
     ]);
   }
 
@@ -567,8 +576,8 @@
 
   function current() {
     const list = pages();
-    const key = String(S.pos || "").split(":")[0];  // older drafts stored "section:screen"
-    let i = list.findIndex((x) => x.key === key);
+    const key = String(S.pos || "").split(":")[0];  // older drafts stored a section, or "section:screen"
+    let i = list.findIndex((x) => x.key === key || x.ids.indexOf(key) >= 0);
     if (i < 0) i = 0;
     return { list, i, item: list[i] };
   }
@@ -598,29 +607,29 @@
     return [h("div", { class: "nav" }, [back, next]), live.hint];
   }
 
-  /* ================= section page ================= */
+  /* ================= page ================= */
 
   function render() {
     clearLive();
     const { list, i, item } = current();
     if (!item) { renderWelcome(); return; }
-    const sec = item.sec;
     S.pos = item.key;
-    live.item = item;
     setHeader(item, list.length);
-    const screen = h("section", { class: "screen" }, [
-      h("header", { class: "sec-head" }, [
-        h("div", { class: "sec-label", text: COPY.sectionLabel(item.si + 1) }),
-        h("h1", { class: "sec-title" }, [h("span", { text: sec.title }), " " + sec.emoji]),
+    const screen = h("section", { class: "screen" });
+    item.secs.forEach((sec, n) => {
+      const box = h("div", { class: "sec" }, h("header", { class: "sec-head" }, [
+        h(n ? "h2" : "h1", { class: "sec-title" }, [h("span", { text: sec.title }), " " + sec.emoji]),
         h("p", { class: "intro", text: sec.intro }),
-      ]),
-    ]);
-    sec.groups.forEach((g) => {
-      const box = h("div", { class: "group" });
-      if (g.heading) box.appendChild(h("h2", { class: "group-head", text: g.heading }));
-      if (g.kind === "photos") renderPhotos(g, box);
-      else renderQuestions(g, box);
-      if (g.when) live.conds.push({ el: box, when: g.when });
+      ]));
+      sec.groups.forEach((g) => {
+        const gb = h("div", { class: "group" });
+        if (g.heading) gb.appendChild(h("h3", { class: "group-head", text: g.heading }));
+        if (g.kind === "photos") renderPhotos(g, gb);
+        else renderQuestions(g, gb);
+        if (g.when) live.conds.push({ el: gb, when: g.when });
+        box.appendChild(gb);
+      });
+      if (sec.when) live.conds.push({ el: box, when: sec.when });
       screen.appendChild(box);
     });
     add(screen, nav(i === list.length - 1));
@@ -822,7 +831,10 @@
     S.pos = Store.get("pos");
 
     Photos.init({
-      ctx: () => ({ key: S.key, rid: S.rid, name: S.answers.name, test: IS_TEST }),
+      ctx: () => ({
+        key: S.key, rid: S.rid, name: S.answers.name, test: IS_TEST,
+        typingName: !!document.activeElement && document.activeElement.id === "q-name",
+      }),
       onChange: () => { S.dirty = true; refresh(); },
     });
 

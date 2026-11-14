@@ -2,7 +2,7 @@
  * Every section, question, option and line of copy for the birthday surprise.
  * app.js reads this as data and stays generic.
  *
- * Each section is one page. Its `groups` are runs of cards on that page.
+ * PAGES (at the bottom) says which sections share a page. A section's `groups` are runs of cards.
  * Question types: short, long, three, single, scale5 (slider), sliders, ever.
  * `when(a)` decides visibility from the answers so far (sections, groups, questions, options).
  * Stored values are the option `v`; emoji are for display only.
@@ -21,7 +21,6 @@ const COPY = {
   next: "Next",
   back: "Back",
   submit: "Submit 🎉",
-  sectionLabel: (n) => `Section ${n}`,
   missing: (label) => `Still needed: ${label} ↑`,
   counter: (n, total) => `${n} of ${total}`,
   sending: "Sending your answers…",
@@ -60,6 +59,7 @@ const COPY = {
     caption: "Caption (optional)",
     remove: "Remove photo",
     waiting: "Waiting…",
+    needName: "Add your name above and this will upload.",
     processing: "Getting it ready…",
     uploading: "Uploading…",
     done: "Uploaded ✓",
@@ -102,50 +102,6 @@ const SECTIONS = [
         ],
       },
       {
-        id: "family",
-        heading: "🏠 Family special",
-        when: (a) => a.relation === "Family",
-        questions: [
-          { id: "family_kid", type: "long", label: "What was she like as a kid?" },
-          { id: "family_dream", type: "short", label: "What did she want to be when she grew up?" },
-        ],
-      },
-      {
-        id: "school",
-        heading: "🎒 School days",
-        when: (a) => a.relation === "School",
-        questions: [
-          { id: "school_3words", type: "three", label: `School-${P} in 3 words` },
-          {
-            id: "school_type", type: "single", style: "list", label: "In school, she was the…",
-            options: [
-              { v: "Topper", e: "🏆" },
-              { v: "Backbencher", e: "🪑" },
-              { v: "Teacher's pet", e: "🍎" },
-              { v: "Bunk planner", e: "🏃‍♀️" },
-              { v: "Class monitor", e: "📋" },
-            ],
-          },
-        ],
-      },
-      {
-        id: "college",
-        heading: "🎓 College days",
-        when: (a) => a.relation === "College",
-        questions: [
-          { id: "college_hostel_moment", type: "long", label: "Her most iconic hostel moment" },
-          { id: "college_snack", type: "short", label: "Her 2 AM hostel snack" },
-        ],
-      },
-      {
-        id: "work",
-        heading: "💼 Work mode",
-        when: (a) => a.relation === "Work",
-        questions: [
-          { id: "work_meeting_line", type: "short", label: "Her most-used line in meetings" },
-        ],
-      },
-      {
         id: "known",
         questions: [
           {
@@ -163,8 +119,35 @@ const SECTIONS = [
       {
         id: "met",
         questions: [
-          { id: "how_met", type: "short", label: "How did you two meet?" },
           { id: "nickname", type: "short", label: "What do you call her?" },
+          { id: "how_met", type: "short", label: "How did you two meet?" },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: "photos",
+    emoji: "📸",
+    title: "Photo dump",
+    intro: "Gallery kholo, it's time 📂",
+    groups: [
+      {
+        id: "photos",
+        kind: "photos",
+        slots: [
+          { id: "funny", label: "Funniest photo of her", sub: "Win ₹50–₹500 if she'd want it deleted 😈" },
+          { id: "aesthetic", label: "Most aesthetic, beautiful or cute photo of her" },
+          { id: "together", label: "Best photo of the two of you, or a group photo of your gang" },
+          { id: "candid", label: "A candid she doesn't know exists" },
+          { id: "childhood", label: "Childhood photo, or the oldest photo you have of her" },
+        ],
+        questions: [
+          {
+            id: "funny_upi", type: "short", label: "Your UPI ID, for the prize", sub: "Only used to send your prize.",
+            afterSlot: "funny", autocomplete: "off", maxLength: 100,
+            when: () => typeof Photos !== "undefined" && Photos.count("funny") > 0,
+          },
         ],
       },
     ],
@@ -417,6 +400,60 @@ const SECTIONS = [
   },
 
   {
+    id: "her",
+    emoji: "💫",
+    title: `About ${P}`,
+    intro: `The ${P} only you know ✨`,
+    when: (a) => ["School", "College", "Work", "Family"].indexOf(a.relation) >= 0,
+    groups: [
+      {
+        id: "family",
+        heading: "🏠 Family special",
+        when: (a) => a.relation === "Family",
+        questions: [
+          { id: "family_kid", type: "long", label: "What was she like as a kid?" },
+          { id: "family_dream", type: "short", label: "What did she want to be when she grew up?" },
+        ],
+      },
+      {
+        id: "school",
+        heading: "🎒 School days",
+        when: (a) => a.relation === "School",
+        questions: [
+          { id: "school_3words", type: "three", label: `School-${P} in 3 words` },
+          {
+            id: "school_type", type: "single", style: "list", label: "In school, she was the…",
+            options: [
+              { v: "Topper", e: "🏆" },
+              { v: "Backbencher", e: "🪑" },
+              { v: "Teacher's pet", e: "🍎" },
+              { v: "Bunk planner", e: "🏃‍♀️" },
+              { v: "Class monitor", e: "📋" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "college",
+        heading: "🎓 College days",
+        when: (a) => a.relation === "College",
+        questions: [
+          { id: "college_hostel_moment", type: "long", label: "Her most iconic hostel moment" },
+          { id: "college_snack", type: "short", label: "Her 2 AM hostel snack" },
+        ],
+      },
+      {
+        id: "work",
+        heading: "💼 Work mode",
+        when: (a) => a.relation === "Work",
+        questions: [
+          { id: "work_meeting_line", type: "short", label: "Her most-used line in meetings" },
+        ],
+      },
+    ],
+  },
+
+  {
     id: "memories",
     emoji: "💭",
     title: "Memory lane",
@@ -449,33 +486,6 @@ const SECTIONS = [
   },
 
   {
-    id: "photos",
-    emoji: "📸",
-    title: "Photo dump",
-    intro: "Gallery kholo, it's time 📂",
-    groups: [
-      {
-        id: "photos",
-        kind: "photos",
-        slots: [
-          { id: "funny", label: "Funniest photo of her", sub: "Win ₹50–₹500 if she'd want it deleted 😈" },
-          { id: "aesthetic", label: "Most aesthetic, beautiful or cute photo of her" },
-          { id: "together", label: "Best photo of the two of you, or a group photo of your gang" },
-          { id: "candid", label: "A candid she doesn't know exists" },
-          { id: "childhood", label: "Childhood photo, or the oldest photo you have of her" },
-        ],
-        questions: [
-          {
-            id: "funny_upi", type: "short", label: "Your UPI ID, for the prize", sub: "Only used to send your prize.",
-            afterSlot: "funny", autocomplete: "off", maxLength: 100,
-            when: () => typeof Photos !== "undefined" && Photos.count("funny") > 0,
-          },
-        ],
-      },
-    ],
-  },
-
-  {
     id: "wishes",
     emoji: "🎂",
     title: "Birthday wishes",
@@ -495,4 +505,11 @@ const SECTIONS = [
       },
     ],
   },
+];
+
+/* Which sections share a page, in order. */
+const PAGES = [
+  ["about", "photos"],
+  ["meter", "ever", "decoded", "games", "predict"],
+  ["her", "memories", "wishes"],
 ];

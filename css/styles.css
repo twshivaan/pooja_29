@@ -101,9 +101,7 @@ h1:focus, h1:focus-visible { outline: none; box-shadow: none; }
 /* ---------- headings ---------- */
 
 .sec-head { margin: 8px 0 4px; }
-.sec-label {
-  font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
-}
+.sec + .sec { margin-top: 44px; padding-top: 30px; border-top: 2px dashed #B9C3D8; }
 .sec-title {
   font-family: var(--hand); font-weight: 700; font-size: 44px; line-height: 1.1; margin: 4px 0 8px;
 }
