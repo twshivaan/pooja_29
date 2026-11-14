@@ -18,14 +18,13 @@
     rid: null,
     answers: {},
     pos: null,
-    stackIdx: 0,
     dir: 1,
     dirty: false,
     started: false,
   };
 
-  // What is on screen right now: conditional blocks, required questions, the Next button, timers.
-  let live = { conds: [], required: [], next: null, timers: [] };
+  // What is on screen right now: conditional blocks, required questions, the Next button and its hint, timers.
+  let live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0, item: null };
 
   /* ================= helpers ================= */
 
@@ -91,6 +90,7 @@
   function isEmpty(v) {
     if (v == null) return true;
     if (Array.isArray(v)) return v.every((x) => !String(x || "").trim());
+    if (typeof v === "object") return !Object.keys(v).length;
     return !String(v).trim();
   }
 
@@ -122,30 +122,28 @@
     return SECTIONS.filter((s) => !s.when || s.when(S.answers));
   }
 
-  /* Every screen in order, with section title cards, for the current answers. */
-  function flat() {
-    const out = [];
-    visibleSections().forEach((sec, si) => {
-      out.push({ sec, si, key: sec.id + ":title", title: true });
-      sec.screens.forEach((sc) => {
-        if (!sc.when || sc.when(S.answers)) out.push({ sec, si, sc, key: sec.id + ":" + sc.id });
-      });
-    });
-    return out;
+  /* One page per section, for the current answers. */
+  function pages() {
+    return visibleSections().map((sec, si) => ({ sec, si, key: sec.id }));
   }
 
   function optionVisible(o) { return !o.when || o.when(S.answers); }
 
+  /* A sliders answer is { option: "1".."n" }; anything else (an old draft) counts as empty. */
+  function levelsOf(q) {
+    const v = S.answers[q.id];
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  }
+
   function serialize(q) {
     const a = S.answers;
     const v = a[q.id];
-    if (q.type === "multi") {
-      const vis = q.options.filter(optionVisible);
-      return (Array.isArray(v) ? v : [])
-        .map((x) => vis.find((o) => o.v === x))
-        .filter(Boolean)
-        .map((o) => (o.other ? (String(a[q.otherKey] || "").trim() ? "Other: " + String(a[q.otherKey]).trim() : "Other") : o.v))
-        .join("; ");
+    if (q.type === "sliders") {
+      const lv = levelsOf(q);
+      const parts = q.options.filter(optionVisible).filter((o) => lv[o.v]).map((o) => `${o.v}: ${lv[o.v]}/${q.levels.length}`);
+      const other = String(a[q.otherKey] || "").trim();
+      if (other) parts.push("Other: " + other);
+      return parts.join("; ");
     }
     if (q.type === "three") return (Array.isArray(v) ? v : []).map((x) => String(x || "").trim()).filter(Boolean).join(", ");
     if (q.style === "emoji") return String(v || a[q.otherKey] || "").trim();
@@ -159,10 +157,10 @@
     const out = {};
     SECTIONS.forEach((sec) => {
       const sv = !sec.when || sec.when(a);
-      sec.screens.forEach((sc) => {
-        const scv = sv && (!sc.when || sc.when(a));
-        (sc.questions || []).forEach((q) => {
-          const qv = scv && (!q.when || q.when(a));
+      sec.groups.forEach((g) => {
+        const gv = sv && (!g.when || g.when(a));
+        (g.questions || []).forEach((q) => {
+          const qv = gv && (!q.when || q.when(a));
           out[q.id] = qv ? serialize(q) : "";
         });
       });
@@ -189,16 +187,13 @@
 
   /* ================= header ================= */
 
-  function setHeader(item, list) {
+  function setHeader(item, total) {
     if (!item) { $top.hidden = true; return; }
     $top.hidden = false;
-    const total = visibleSections().length;
-    const inSec = list.filter((x) => x.sec === item.sec);
-    const k = inSec.indexOf(item);
-    const frac = (item.si + (k + 1) / inSec.length) / total;
+    const pct = Math.round(((item.si + 0.5) / total) * 100);
     $counter.textContent = COPY.counter(item.si + 1, total);
-    $fill.style.width = Math.max(3, Math.round(frac * 100)) + "%";
-    $bar.setAttribute("aria-valuenow", String(Math.round(frac * 100)));
+    $fill.style.width = pct + "%";
+    $bar.setAttribute("aria-valuenow", String(pct));
   }
 
   function setStatus(s) {
@@ -210,12 +205,10 @@
 
   function clearLive() {
     live.timers.forEach((t) => clearInterval(t));
-    live = { conds: [], required: [], next: null, timers: [] };
+    live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0, item: null };
   }
 
-  function show(screen, opts) {
-    opts = opts || {};
-    document.body.classList.toggle("spicy", !!opts.spicy);
+  function show(screen) {
     screen.classList.add(S.dir < 0 ? "from-left" : "from-right");
     while ($app.firstChild) $app.removeChild($app.firstChild);
     $app.appendChild(screen);
@@ -227,16 +220,28 @@
 
   function refresh() {
     live.conds.forEach((c) => { c.el.hidden = !c.when(S.answers); });
-    if (live.next) live.next.disabled = !requiredOk();
+    if (live.item) setHeader(live.item, pages().length);  // an answer can add or drop a section
+    const miss = missing();
+    if (live.next) live.next.disabled = !!miss;
+    if (live.hint) {
+      live.hint.hidden = !miss;
+      if (miss) live.hint.textContent = COPY.missing(miss.label);
+    }
   }
 
-  function requiredOk() {
-    return live.required.every((q) => !isEmpty(S.answers[q.id]));
+  function missing() {
+    return live.required.find((q) => isEmpty(S.answers[q.id])) || null;
+  }
+
+  function scrollToMissing() {
+    const q = missing();
+    const el = q && (document.getElementById("q-" + q.id) || document.getElementById("q-" + q.id + "-l"));
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+    if (el.matches("input, textarea")) el.focus({ preventScroll: true });
   }
 
   /* ================= question renderers ================= */
-
-  const TEXT_TYPES = ["short", "long", "three"];
 
   function label(q, id) {
     return h("label", { class: "q-label", for: id, id: id + "-l" }, [
@@ -353,7 +358,6 @@
       if (style === "cards") inner = [h("span", { class: "big-emoji", "aria-hidden": "true", text: o.e }), h("span", { text: o.v })];
       else if (style === "posters") inner = [h("span", { class: "poster-emoji", "aria-hidden": "true", text: o.e }), h("span", { class: "poster-title", text: o.v })];
       else if (style === "emoji") inner = o.v;
-      else if (style === "lie") inner = [h("span", { class: "lie-text", text: o.v }), h("span", { class: "lie-stamp", "aria-hidden": "true", text: COPY.lieStamp })];
       else inner = optText(o);
       const b = h("button", {
         type: "button", class: "opt", "data-v": o.v, "aria-pressed": "false",
@@ -362,10 +366,7 @@
           const now = S.answers[q.id] === o.v ? null : o.v;
           setA(q.id, now);
           if (now && q.otherKey && style === "emoji") { setA(q.otherKey, null); if (otherInput) otherInput.value = ""; }
-          if (now) {
-            swipe(b);
-            if (style === "lie" && !reduceMotion) { b.classList.remove("flip"); void b.offsetWidth; b.classList.add("flip"); }
-          }
+          if (now) swipe(b);
           sync();
           if (now && o.other && otherInput) otherInput.focus();
         },
@@ -412,113 +413,149 @@
     return wrap;
   }
 
-  function renderMulti(q) {
-    const lid = "q-" + q.id + "-l";
-    const opts = q.options.filter(optionVisible);
-    const wrap = h("div", { class: "q q-multi" });
-    const group = h("div", { class: "opts chips", role: "group", "aria-labelledby": lid });
-    const counter = h("div", { class: "picked", "aria-live": "polite" });
-    const btns = [];
-    let otherBox = null;
-    let otherInput = null;
+  function pop(el) {
+    if (reduceMotion) return;
+    el.classList.remove("pop");
+    void el.offsetWidth;
+    el.classList.add("pop");
+  }
 
-    const cur = () => (Array.isArray(S.answers[q.id]) ? S.answers[q.id].filter((v) => opts.some((o) => o.v === v)) : []);
+  /*
+   * A 1..n slider that starts unset: the thumb is ghosted in the middle until the first touch.
+   * opts: { labelledby, labels, get(), set(v or null), onSync(isSet) }
+   */
+  function slider(opts) {
+    const n = opts.labels.length;
+    const mid = String(Math.ceil(n / 2));
+    const input = h("input", {
+      type: "range", class: "slider", min: "1", max: String(n), step: "1", "aria-labelledby": opts.labelledby,
+    });
+    const out = h("span", { class: "slider-value", "aria-live": "polite" });
+    const clear = h("button", {
+      type: "button", class: "slider-clear", "aria-label": COPY.clear, text: "✕",
+      onclick: () => { opts.set(null); sync(); },
+    });
+    let before;  // the answer when a touch began, in case it turns into a page scroll
 
     function sync() {
-      const sel = cur();
-      btns.forEach((b) => {
-        const on = sel.indexOf(b.dataset.v) >= 0;
-        b.setAttribute("aria-pressed", String(on));
-        b.classList.toggle("dim", !on && sel.length >= q.max);
-      });
-      counter.textContent = COPY.picked(sel.length, q.max);
-      if (otherBox) otherBox.hidden = sel.indexOf("Other") < 0;
+      const cur = opts.get();
+      const on = !!cur;
+      input.value = on ? cur : mid;
+      input.classList.toggle("unset", !on);
+      input.style.setProperty("--pct", on ? String((Number(cur) - 1) / (n - 1)) : "0");
+      input.setAttribute("aria-valuetext", on ? opts.labels[Number(cur) - 1] : COPY.notAnswered);
+      out.textContent = on ? opts.labels[Number(cur) - 1] : "";
+      clear.hidden = !on;
+      if (opts.onSync) opts.onSync(on);
     }
-
-    opts.forEach((o) => {
-      const b = h("button", {
-        type: "button", class: "opt", "data-v": o.v, "aria-pressed": "false",
-        onclick: () => {
-          const sel = cur();
-          const i = sel.indexOf(o.v);
-          if (i >= 0) sel.splice(i, 1);
-          else if (sel.length >= q.max) {
-            counter.classList.remove("shake"); void counter.offsetWidth; counter.classList.add("shake");
-            return;
-          } else { sel.push(o.v); swipe(b); }
-          setA(q.id, sel);
-          sync();
-          if (o.other && sel.indexOf("Other") >= 0 && otherInput) otherInput.focus();
-        },
-      }, optText(o));
-      btns.push(b);
-      group.appendChild(b);
-    });
-
-    add(wrap, [groupLabel(q, lid), sub(q), counter, group]);
-
-    if (q.otherKey) {
-      const oid = "q-" + q.otherKey;
-      otherInput = h("input", {
-        id: oid, class: "text", type: "text", maxlength: "100", autocomplete: "off",
-        value: S.answers[q.otherKey] || "", placeholder: COPY.otherPlaceholder,
-      });
-      otherInput.addEventListener("input", () => setA(q.otherKey, otherInput.value));
-      otherBox = h("div", { class: "other-box" }, [h("label", { class: "q-sub other-label", for: oid, text: "Other" }), otherInput]);
-      wrap.appendChild(otherBox);
+    function commit() {
+      if (opts.get() !== input.value) { opts.set(input.value); pop(out); }
+      sync();
     }
+    ["input", "change", "click", "pointerup"].forEach((e) => input.addEventListener(e, commit));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); commit(); } });
+    input.addEventListener("pointerdown", () => { before = opts.get() || null; });
+    input.addEventListener("pointercancel", () => { opts.set(before); sync(); });
     sync();
-    return wrap;
+    return { input, out, clear };
   }
 
   function renderScale(q) {
     const lid = "q-" + q.id + "-l";
-    const wrap = h("div", { class: "q q-scale" });
-    const row = h("div", { class: "scale", role: "group", "aria-labelledby": lid });
-    const out = h("div", { class: "scale-label", "aria-live": "polite" });
-    const btns = [];
-    function sync() {
-      const cur = S.answers[q.id];
-      btns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === cur)));
-      out.textContent = cur ? COPY.scale[Number(cur) - 1] : "";
-    }
-    [1, 2, 3, 4, 5].forEach((n) => {
-      const v = String(n);
-      const b = h("button", {
-        type: "button", class: "dot", "data-v": v, "aria-pressed": "false",
-        "aria-label": `${n}: ${COPY.scale[n - 1]}`,
-        onclick: () => { const now = S.answers[q.id] === v ? null : v; setA(q.id, now); if (now) swipe(b); sync(); },
-      }, v);
-      btns.push(b);
-      row.appendChild(b);
-    });
-    const ends = h("div", { class: "scale-ends", "aria-hidden": "true" }, [
-      h("span", { text: COPY.scale[0] }), h("span", { text: COPY.scale[4] }),
+    const ends = h("div", { class: "slider-ends", "aria-hidden": "true" }, [
+      h("span", { text: COPY.scale[0] }), h("span", { text: COPY.scale[COPY.scale.length - 1] }),
     ]);
-    add(wrap, [groupLabel(q, lid), row, ends, out]);
-    sync();
+    const s = slider({
+      labelledby: lid, labels: COPY.scale,
+      get: () => S.answers[q.id],
+      set: (v) => setA(q.id, v),
+      onSync: (on) => { ends.hidden = on; },
+    });
+    return h("div", { class: "q q-scale" }, [
+      groupLabel(q, lid), s.input, h("div", { class: "slider-foot" }, [ends, s.out, s.clear]),
+    ]);
+  }
+
+  function renderSliders(q) {
+    const lid = "q-" + q.id + "-l";
+    const wrap = h("div", { class: "q q-sliders", role: "group", "aria-labelledby": lid }, [groupLabel(q, lid), sub(q)]);
+    q.options.filter(optionVisible).forEach((o, i) => {
+      const rid = "q-" + q.id + "-" + i;
+      const s = slider({
+        labelledby: rid, labels: q.levels,
+        get: () => levelsOf(q)[o.v],
+        set: (v) => {
+          const all = Object.assign({}, levelsOf(q));
+          if (v) all[o.v] = v; else delete all[o.v];
+          setA(q.id, all);
+        },
+      });
+      wrap.appendChild(h("div", { class: "srow", "data-v": o.v }, [
+        h("div", { class: "srow-head" }, [h("span", { class: "srow-label", id: rid, text: optText(o) }), s.out, s.clear]),
+        s.input,
+      ]));
+    });
+    if (q.otherKey) {
+      const oid = "q-" + q.otherKey;
+      const input = h("input", {
+        id: oid, class: "text", type: "text", maxlength: "100", autocomplete: "off",
+        value: S.answers[q.otherKey] || "", placeholder: COPY.otherPlaceholder,
+      });
+      input.addEventListener("input", () => setA(q.otherKey, input.value));
+      wrap.appendChild(h("div", { class: "other-box" }, [h("label", { class: "q-sub other-label", for: oid, text: q.otherLabel }), input]));
+    }
     return wrap;
   }
 
-  function renderQ(q) {
+  /* One "has she ever" statement: Yes / No / No comment, with a one-line reaction. */
+  function renderEver(q, idx, total) {
+    const lid = "q-" + q.id + "-l";
+    const reaction = h("span", { class: "reaction", "aria-live": "polite" });
+    const btns = COPY.everButtons.map((o) => {
+      const b = h("button", {
+        type: "button", class: "opt", "data-v": o.v, "aria-pressed": String(S.answers[q.id] === o.v),
+        onclick: () => {
+          const now = S.answers[q.id] === o.v ? null : o.v;
+          setA(q.id, now);
+          btns.forEach((x) => x.setAttribute("aria-pressed", String(!!now && x === b)));
+          reaction.textContent = now ? pickRandom(COPY.everReactions[now]) : "";
+          if (now) { swipe(b); pop(reaction); }
+        },
+      }, o.label);
+      return b;
+    });
+    return h("div", { class: "q q-ever" }, [
+      h("div", { class: "ever-top" }, [h("span", { class: "ever-count", text: `${idx + 1} / ${total}` }), reaction]),
+      h("div", { class: "q-label", id: lid, text: q.label }),
+      h("div", { class: "ever-btns", role: "group", "aria-labelledby": lid }, btns),
+    ]);
+  }
+
+  function renderQ(q, g) {
     if (q.type === "short" || q.type === "long") return renderText(q);
     if (q.type === "three") return renderThree(q);
     if (q.type === "single") return renderSingle(q);
-    if (q.type === "multi") return renderMulti(q);
     if (q.type === "scale5") return renderScale(q);
+    if (q.type === "sliders") return renderSliders(q);
+    if (q.type === "ever") {
+      const all = g.questions.filter((x) => x.type === "ever");
+      return renderEver(q, all.indexOf(q), all.length);
+    }
     return h("div");
   }
 
-  /* Questions on a screen; `attach: true` puts a question in the previous card. */
-  function renderQuestions(sc, into, list) {
+  const FLAT_TYPES = ["short", "long", "three", "sliders"];  // no tilt: inputs and long cards stay straight
+  const COMPACT_TYPES = ["scale5", "ever"];
+
+  /* Questions in a group; `attach: true` puts a question in the previous card. */
+  function renderQuestions(g, into, list) {
     let cur = null;
-    let i = 0;
-    (list || sc.questions).forEach((q) => {
-      const el = renderQ(q);
+    (list || g.questions).forEach((q) => {
+      const el = renderQ(q, g);
       if (q.attach && cur) cur.appendChild(el);
       else {
-        const isText = TEXT_TYPES.indexOf(q.type) >= 0;
-        cur = card(q.id, el, { flat: isText, cls: sc.cardClass, i: i++ });
+        const cls = [g.cardClass, COMPACT_TYPES.indexOf(q.type) >= 0 ? "compact" : ""].filter(Boolean).join(" ");
+        cur = card(q.id, el, { flat: FLAT_TYPES.indexOf(q.type) >= 0, cls, i: Math.min(live.cards++, 6) });
         into.appendChild(cur);
       }
       if (q.when) live.conds.push({ el: q.attach ? el : cur, when: q.when });
@@ -529,184 +566,77 @@
   /* ================= navigation ================= */
 
   function current() {
-    const list = flat();
-    let i = list.findIndex((x) => x.key === S.pos);
+    const list = pages();
+    const key = String(S.pos || "").split(":")[0];  // older drafts stored "section:screen"
+    let i = list.findIndex((x) => x.key === key);
     if (i < 0) i = 0;
     return { list, i, item: list[i] };
   }
 
   function go(delta) {
-    const { list, i, item } = current();
+    const { list, i } = current();
     const nxt = list[i + delta];
     S.dir = delta;
     if (!nxt) {
       if (delta > 0) { finish(); return; }
       renderWelcome(); return;
     }
-    if (nxt.sec !== item.sec) saveRemote();
-    if (nxt.sc && nxt.sc.kind === "stack") {
-      const qs = nxt.sc.questions;
-      if (delta < 0) S.stackIdx = qs.length;
-      else { const f = qs.findIndex((q) => !S.answers[q.id]); S.stackIdx = f < 0 ? qs.length : f; }
-    }
+    saveRemote();
     S.pos = nxt.key;
     Store.set("pos", S.pos);
     render();
   }
 
-  function nav(opts) {
-    opts = opts || {};
-    const back = h("button", { type: "button", class: "btn-back", onclick: opts.onBack || (() => go(-1)) });
+  function nav(last) {
+    const back = h("button", { type: "button", class: "btn-back", onclick: () => go(-1) });
     back.insertAdjacentHTML("beforeend", ARROW_BACK);
     back.appendChild(h("span", { text: COPY.back }));
-    const next = primaryBtn(opts.nextLabel || COPY.next, opts.onNext || (() => go(1)), { arrow: !opts.nextLabel });
+    const next = primaryBtn(last ? COPY.submit : COPY.next, () => go(1), { arrow: !last });
     next.classList.add("nav-next");
     live.next = next;
-    return h("div", { class: "nav" }, [back, next]);
+    live.hint = h("button", { type: "button", class: "link-btn nav-hint", hidden: true, onclick: scrollToMissing });
+    return [h("div", { class: "nav" }, [back, next]), live.hint];
   }
 
-  /* Section label above every screen. The h1 is visually hidden unless the screen has its own heading. */
-  function miniHead(item, text, hideHeading) {
-    return h("div", { class: "mini" }, [
-      h("div", { class: "sec-label", text: COPY.sectionLabel(item.si + 1) + " · " + item.sec.title + " " + item.sec.emoji }),
-      text ? h("h1", { class: "mini-head" + (hideHeading ? " sr-only" : ""), text }) : null,
-    ]);
-  }
-
-  /* ================= screens ================= */
+  /* ================= section page ================= */
 
   function render() {
     clearLive();
     const { list, i, item } = current();
     if (!item) { renderWelcome(); return; }
-    S.pos = item.key;
-    setHeader(item, list);
-    const last = i === list.length - 1;
-    const screen = h("section", { class: "screen" });
-
-    if (item.title) renderTitle(item, screen);
-    else if (item.sc.kind === "stack") { renderStack(item, screen); return; }
-    else if (item.sc.kind === "unlock") renderUnlock(item, screen);
-    else if (item.sc.kind === "photos") renderPhotos(item, screen);
-    else {
-      screen.appendChild(miniHead(item, item.sc.heading || item.sec.title, !item.sc.heading));
-      renderQuestions(item.sc, screen);
-    }
-    screen.appendChild(nav({ nextLabel: last ? COPY.submit : null }));
-    show(screen, { spicy: item.sec.variant === "spicy" });
-  }
-
-  function renderTitle(item, screen) {
     const sec = item.sec;
-    const spicy = sec.variant === "spicy";
-    screen.appendChild(card(sec.id + "-title", [
-      spicy ? h("div", { class: "secret-stamp", text: COPY.secretStamp }) : null,
-      h("div", { class: "title-emoji", "aria-hidden": "true", text: sec.emoji }),
-      h("div", { class: "sec-label", text: COPY.sectionLabel(item.si + 1) }),
-      h("h1", { class: "sec-title" }, h("span", { text: sec.title })),
-      h("p", { class: "intro", text: sec.intro }),
-    ], { cls: "title-card" + (spicy ? " secret" : "") }));
-  }
-
-  /* ---- "Has she ever" card stack ---- */
-
-  function renderStack(item, screen) {
-    const qs = item.sc.questions;
-    screen.appendChild(miniHead(item, COPY.everIntro));
-    const holder = h("div", { class: "stack" });
-    screen.appendChild(holder);
-    let locked = false;
-
-    function draw(dir) {
-      while (holder.firstChild) holder.removeChild(holder.firstChild);
-      const idx = S.stackIdx;
-      if (idx >= qs.length) {
-        holder.appendChild(card("ever-done", [
-          h("div", { class: "title-emoji", "aria-hidden": "true", text: "🎉" }),
-          h("p", { class: "ever-done", text: COPY.everDone(qs.length) }),
-          h("p", { class: "q-sub", text: COPY.everDoneSub }),
-        ], { cls: "ever-card slide-" + (dir < 0 ? "left" : "right") }));
-        return;
-      }
-      const q = qs[idx];
-      const reaction = h("div", { class: "reaction", "aria-live": "polite" });
-      const btns = COPY.everButtons.map((o) => {
-        const b = h("button", {
-          type: "button", class: "opt", "data-v": o.v, "aria-pressed": String(S.answers[q.id] === o.v),
-          onclick: () => {
-            if (locked) return;
-            locked = true;
-            setA(q.id, o.v);
-            btns.forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-            swipe(b);
-            reaction.textContent = pickRandom(COPY.everReactions[o.v]);
-            reaction.classList.add("pop");
-            setTimeout(() => { locked = false; S.stackIdx = idx + 1; draw(1); }, reduceMotion ? 500 : 1000);
-          },
-        }, o.label);
-        return b;
-      });
-      holder.appendChild(card("ever-" + q.id, [
-        h("div", { class: "stack-count", text: `${idx + 1} / ${qs.length}` }),
-        h("div", { class: "ever-lead", text: COPY.everIntro }),
-        h("p", { class: "ever-statement", id: "ever-q", text: q.label }),
-        h("div", { class: "ever-btns", role: "group", "aria-labelledby": "ever-q" }, btns),
-        reaction,
-      ], { cls: "ever-card slide-" + (dir < 0 ? "left" : "right") }));
-      holder.appendChild(h("button", {
-        type: "button", class: "link-btn", text: COPY.everSkip,
-        onclick: () => { if (!locked) { S.stackIdx = idx + 1; draw(1); } },
-      }));
-    }
-
-    screen.appendChild(nav({
-      onBack: () => { if (locked) return; if (S.stackIdx > 0) { S.stackIdx--; draw(-1); } else go(-1); },
-      onNext: () => { if (locked) return; if (S.stackIdx < qs.length) { S.stackIdx++; draw(1); } else go(1); },
-    }));
-    draw(S.dir);
+    S.pos = item.key;
+    live.item = item;
+    setHeader(item, list.length);
+    const screen = h("section", { class: "screen" }, [
+      h("header", { class: "sec-head" }, [
+        h("div", { class: "sec-label", text: COPY.sectionLabel(item.si + 1) }),
+        h("h1", { class: "sec-title" }, [h("span", { text: sec.title }), " " + sec.emoji]),
+        h("p", { class: "intro", text: sec.intro }),
+      ]),
+    ]);
+    sec.groups.forEach((g) => {
+      const box = h("div", { class: "group" });
+      if (g.heading) box.appendChild(h("h2", { class: "group-head", text: g.heading }));
+      if (g.kind === "photos") renderPhotos(g, box);
+      else renderQuestions(g, box);
+      if (g.when) live.conds.push({ el: box, when: g.when });
+      screen.appendChild(box);
+    });
+    add(screen, nav(i === list.length - 1));
     show(screen);
   }
 
-  /* ---- spicy unlock ---- */
-
-  function renderUnlock(item, screen) {
-    const cur = S.answers.spicy_unlocked;
-    const yes = h("button", {
-      type: "button", class: "btn-primary btn-chilli", "aria-pressed": String(cur === "yes"), text: COPY.unlockYes,
-      onclick: () => {
-        setA("spicy_unlocked", "yes");
-        if (reduceMotion) { go(1); return; }
-        const flash = h("div", { class: "chilli-flash", "aria-hidden": "true" }, h("span", { text: "🌶️" }));
-        document.body.appendChild(flash);
-        setTimeout(() => { flash.remove(); go(1); }, 750);
-      },
-    });
-    const no = h("button", {
-      type: "button", class: "btn-secondary", "aria-pressed": String(cur === "no"), text: COPY.unlockNo,
-      onclick: () => { setA("spicy_unlocked", "no"); go(1); },
-    });
-    screen.appendChild(miniHead(item, null));
-    screen.appendChild(card("unlock", [
-      h("div", { class: "title-emoji", "aria-hidden": "true", text: "🔒" }),
-      h("h1", { class: "unlock-text", text: COPY.unlockText }),
-      S.answers.relation === "Work" ? h("p", { class: "q-sub", text: COPY.unlockWork }) : null,
-      h("div", { class: "unlock-btns" }, [yes, no]),
-    ], { cls: "unlock-card" }));
-  }
-
-  /* ---- photos ---- */
-
-  function renderPhotos(item, screen) {
-    screen.appendChild(miniHead(item, item.sec.title, true));
-    item.sc.slots.forEach((slot, i) => {
+  function renderPhotos(g, into) {
+    g.slots.forEach((slot) => {
       const lid = "slot-" + slot.id;
-      screen.appendChild(card("slot-" + slot.id, [
+      into.appendChild(card("slot-" + slot.id, [
         h("div", { class: "q-label", id: lid, text: slot.label }),
         slot.sub ? h("div", { class: "q-sub", text: slot.sub }) : null,
         Photos.renderSlot(slot, lid),
-      ], { cls: "photo-frame", i }));
-      const after = item.sc.questions.filter((q) => q.afterSlot === slot.id);
-      if (after.length) renderQuestions(item.sc, screen, after);
+      ], { cls: "photo-frame", i: Math.min(live.cards++, 6) }));
+      const after = g.questions.filter((q) => q.afterSlot === slot.id);
+      if (after.length) renderQuestions(g, into, after);
     });
   }
 
@@ -726,18 +656,13 @@
     const start = () => {
       S.dir = 1;
       S.started = true;
-      S.pos = flat()[0].key;
+      S.pos = pages()[0].key;
       Store.set("pos", S.pos);
       render();
     };
     const resume = () => {
       S.dir = 1;
       S.started = true;
-      const c = current();
-      if (c.item.sc && c.item.sc.kind === "stack") {
-        const f = c.item.sc.questions.findIndex((q) => !S.answers[q.id]);
-        S.stackIdx = f < 0 ? c.item.sc.questions.length : f;
-      }
       render();
     };
     const fresh = () => { newResponse(); renderWelcome(); };

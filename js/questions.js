@@ -2,8 +2,9 @@
  * Every section, question, option and line of copy for the birthday surprise.
  * app.js reads this as data and stays generic.
  *
- * Question types: short, long, single, multi, scale5, three, unlock.
- * `when(a)` decides visibility from the answers so far (sections, screens, questions, options).
+ * Each section is one page. Its `groups` are runs of cards on that page.
+ * Question types: short, long, three, single, scale5 (slider), sliders, ever.
+ * `when(a)` decides visibility from the answers so far (sections, groups, questions, options).
  * Stored values are the option `v`; emoji are for display only.
  */
 const P = CONFIG.PERSON_NAME;
@@ -21,6 +22,7 @@ const COPY = {
   back: "Back",
   submit: "Submit 🎉",
   sectionLabel: (n) => `Section ${n}`,
+  missing: (label) => `Still needed: ${label} ↑`,
   counter: (n, total) => `${n} of ${total}`,
   sending: "Sending your answers…",
   sendingPhotos: (n) => `Uploading ${n} photo${n === 1 ? "" : "s"}…`,
@@ -38,7 +40,6 @@ const COPY = {
   addAnother: "Add another response",
   status: { saving: "Saving…", saved: "Saved ✓", retry: "Will retry" },
   scale: ["Never 😇", "Rarely 🙂", "Sometimes 😏", "Usually 😂", "Every. Single. Time 💀"],
-  everIntro: `Has ${P} ever…`,
   everButtons: [
     { v: "yes", label: "Yes" },
     { v: "no", label: "No" },
@@ -49,18 +50,11 @@ const COPY = {
     no: ["Haan haan, sure 👀", "So innocent 😇"],
     no_comment: ["Suspicious… 🤐"],
   },
-  everSkip: "Skip",
-  everDone: (n) => `That's all ${n}! 🙌`,
-  everDoneSub: "Tap Next to keep going.",
-  unlockText: "Unlock the spicy section? Friends only 🌶️",
-  unlockWork: "Optional. Skip it if you're her boss 😅",
-  unlockYes: "Haan, I'm in 🌶️",
-  unlockNo: "Skip",
-  secretStamp: "Secret page · friends only",
-  picked: (n, max) => `${n}/${max} picked`,
+  salaryLevels: ["Zero 🙅‍♀️", "Thoda sa 🤏", "Theek-thaak 👌", "Kaafi 💸", "Saari salary 🔥"],
+  clear: "Clear answer",
+  notAnswered: "Not answered",
   otherPlaceholder: "Type it here",
   emojiOther: "Other emoji or word",
-  lieStamp: "LIE 🤥",
   photo: {
     add: "Add photo",
     caption: "Caption (optional)",
@@ -86,9 +80,7 @@ const RELATIONS = [
   { v: "Other", e: "✨" },
 ];
 
-const isFamily = (a) => a.relation === "Family";
-const canUnlock = (a) => !!a.relation && a.relation !== "Family";
-const spicyOn = (a) => canUnlock(a) && a.spicy_unlocked === "yes";
+const notFamily = (a) => !!a.relation && a.relation !== "Family";
 
 const SECTIONS = [
   {
@@ -96,7 +88,7 @@ const SECTIONS = [
     emoji: "👋",
     title: "About you",
     intro: "Pehle batao, who's this? 👀",
-    screens: [
+    groups: [
       {
         id: "name",
         questions: [
@@ -175,12 +167,6 @@ const SECTIONS = [
           { id: "nickname", type: "short", label: "What do you call her?" },
         ],
       },
-      {
-        id: "unlock",
-        kind: "unlock",
-        when: canUnlock,
-        questions: [{ id: "spicy_unlocked", type: "unlock" }],
-      },
     ],
   },
 
@@ -189,10 +175,9 @@ const SECTIONS = [
     emoji: "📊",
     title: `The ${P}-meter`,
     intro: "How likely is she to…",
-    screens: [
+    groups: [
       {
         id: "meter",
-        heading: "How likely is she to…",
         questions: [
           { id: "meter_omw", type: "scale5", label: "Text \"on my way\" while still in bed" },
           { id: "meter_trip", type: "scale5", label: "Plan a trip and actually go" },
@@ -210,26 +195,18 @@ const SECTIONS = [
     id: "ever",
     emoji: "👀",
     title: `Has ${P} ever…?`,
-    intro: "Answer each one: Yes · No · No comment 🤐",
-    screens: [
+    intro: "Tap one for each: Yes · No · No comment 🤐",
+    groups: [
       {
-        id: "stack",
-        kind: "stack",
+        id: "ever",
         questions: [
           { id: "ever_bunk", type: "ever", label: "Bunked a class or skipped work just for fun" },
-          { id: "ever_sleep_class", type: "ever", label: "Fallen asleep in a lecture or meeting" },
           { id: "ever_insta_like", type: "ever", label: "Stalked someone's Instagram and accidentally liked an old post" },
-          { id: "ever_cry_movie", type: "ever", label: "Cried over a movie" },
-          { id: "ever_trouble", type: "ever", label: "Gotten into trouble with a teacher or boss" },
           { id: "ever_crush", type: "ever", label: "Had a crush on a teacher, celebrity or fictional character" },
-          { id: "ever_sing", type: "ever", label: "Sung loudly in public" },
-          { id: "ever_vidaai", type: "ever", label: "Cried at a wedding vidaai 😭" },
           { id: "ever_sangeet", type: "ever", label: "Danced at a sangeet like it was her own wedding 💃" },
           { id: "ever_wrong_chat", type: "ever", label: "Sent a message to the wrong chat 🙈" },
           { id: "ever_mute", type: "ever", label: "Said something on a call thinking she was on mute 🎤" },
-          { id: "ever_nod", type: "ever", label: "Nodded along in class or a meeting, then Googled it later 🤓" },
           { id: "ever_shopping", type: "ever", label: "Gone shopping for one thing and come back with ten 🛍️" },
-          { id: "ever_auto", type: "ever", label: "Argued with an auto driver over ₹10 🛺" },
           { id: "ever_maggi", type: "ever", label: "Burnt Maggi 🔥" },
         ],
       },
@@ -241,7 +218,7 @@ const SECTIONS = [
     emoji: "🔍",
     title: `${P}, decoded`,
     intro: "The little things that make her, her ✨",
-    screens: [
+    groups: [
       {
         id: "emoji",
         questions: [
@@ -278,8 +255,9 @@ const SECTIONS = [
         id: "salary",
         questions: [
           {
-            id: "salary", type: "multi", style: "chips", max: 3, label: "Where does her salary go? Pick up to 3",
-            otherKey: "salary__other",
+            id: "salary", type: "sliders", label: "Where does her salary go?",
+            sub: "Slide each one. Skip any you're not sure about.",
+            levels: COPY.salaryLevels, otherKey: "salary__other", otherLabel: "Anything else?",
             options: [
               { v: "Rent & bills", e: "🧾" },
               { v: "Savings & investments", e: "📈" },
@@ -291,9 +269,8 @@ const SECTIONS = [
               { v: "Gadgets", e: "📱" },
               { v: "Subscriptions (OTT, apps)", e: "📺" },
               { v: "Gifts for others", e: "🎁" },
-              { v: "Dating app subscription", e: "💘", when: spicyOn },
-              { v: "Protection", e: "🛡️", when: spicyOn },
-              { v: "Other", other: true },
+              { v: "Dating app subscription", e: "💘", when: notFamily },
+              { v: "Protection", e: "🛡️", when: notFamily },
             ],
           },
         ],
@@ -334,7 +311,7 @@ const SECTIONS = [
     emoji: "🔥",
     title: "Games & roasts",
     intro: "Thoda masti, thoda roast 😈",
-    screens: [
+    groups: [
       {
         id: "dict",
         cardClass: "dict",
@@ -354,7 +331,7 @@ const SECTIONS = [
         id: "lie",
         questions: [
           {
-            id: "lie_pick", type: "single", style: "lie", label: "Two truths and a lie: which one's the lie?",
+            id: "lie_pick", type: "single", style: "list", label: "Two truths and a lie: which one's the lie?",
             options: [
               { v: "She cancels plans at the last minute" },
               { v: "She replies" },
@@ -373,13 +350,12 @@ const SECTIONS = [
   },
 
   {
-    id: "spicy",
-    emoji: "🌶️",
-    title: "The spicy section",
-    intro: "Friends only 🌶️ Sach bolo, no judgement.",
-    variant: "spicy",
-    when: spicyOn,
-    screens: [
+    id: "predict",
+    emoji: "🔮",
+    title: "Predictions",
+    intro: "Sach bolo, no judgement 😌",
+    when: notFamily,
+    groups: [
       {
         id: "movie",
         questions: [
@@ -445,7 +421,7 @@ const SECTIONS = [
     emoji: "💭",
     title: "Memory lane",
     intro: "Thodi si nostalgia, please 🥹",
-    screens: [
+    groups: [
       {
         id: "fav",
         questions: [
@@ -477,7 +453,7 @@ const SECTIONS = [
     emoji: "📸",
     title: "Photo dump",
     intro: "Gallery kholo, it's time 📂",
-    screens: [
+    groups: [
       {
         id: "photos",
         kind: "photos",
@@ -504,7 +480,7 @@ const SECTIONS = [
     emoji: "🎂",
     title: "Birthday wishes",
     intro: "Last one! Dil se likho 💌",
-    screens: [
+    groups: [
       {
         id: "short",
         questions: [
