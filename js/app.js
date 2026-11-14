@@ -139,7 +139,7 @@
 
   function optionVisible(o) { return !o.when || o.when(S.answers); }
 
-  /* A sliders answer is { option: "1".."n" }; anything else (an old draft) counts as empty. */
+  /* A sliders answer is { option: "0".."100" }; anything else (an old draft) counts as empty. */
   function levelsOf(q) {
     const v = S.answers[q.id];
     return v && typeof v === "object" && !Array.isArray(v) ? v : {};
@@ -150,7 +150,7 @@
     const v = a[q.id];
     if (q.type === "sliders") {
       const lv = levelsOf(q);
-      const parts = q.options.filter(optionVisible).filter((o) => lv[o.v]).map((o) => `${o.v}: ${lv[o.v]}/${q.levels.length}`);
+      const parts = q.options.filter(optionVisible).filter((o) => lv[o.v]).map((o) => `${o.v}: ${lv[o.v]}%`);
       const other = String(a[q.otherKey] || "").trim();
       if (other) parts.push("Other: " + other);
       return parts.join("; ");
@@ -267,10 +267,7 @@
   }
 
   function sub(q) {
-    return [
-      q.sub ? h("div", { class: "q-sub", text: q.sub }) : null,
-      q.example ? h("div", { class: "q-example", text: "e.g. " + q.example }) : null,
-    ];
+    return q.sub ? h("div", { class: "q-sub", text: q.sub }) : null;
   }
 
   function autogrow(ta) {
@@ -430,40 +427,47 @@
   }
 
   /*
-   * A 1..n slider that starts unset: the thumb is ghosted in the middle until the first touch.
-   * opts: { labelledby, labels, get(), set(v or null), onSync(isSet) }
+   * A smooth 0–100 slider that starts unset: the thumb is ghosted in the middle until the first touch.
+   * `labels` name equal zones along the track. opts: { labelledby, labels, get(), set(v or null), onSync(isSet) }
    */
   function slider(opts) {
-    const n = opts.labels.length;
-    const mid = String(Math.ceil(n / 2));
+    const MID = "50";
+    const zone = (v) => Math.round((Number(v) / 100) * (opts.labels.length - 1));
+    const isSet = (v) => v != null && v !== "";
     const input = h("input", {
-      type: "range", class: "slider", min: "1", max: String(n), step: "1", "aria-labelledby": opts.labelledby,
+      type: "range", class: "slider", min: "0", max: "100", step: "1", "aria-labelledby": opts.labelledby,
     });
     const out = h("span", { class: "slider-value", "aria-live": "polite" });
     const clear = h("button", {
       type: "button", class: "slider-clear", "aria-label": COPY.clear, text: "✕",
       onclick: () => { opts.set(null); sync(); },
     });
-    let before;  // the answer when a touch began, in case it turns into a page scroll
+    let before;      // the answer when a touch began, in case it turns into a page scroll
+    let shown = -1;  // the zone whose label is showing
 
     function sync() {
       const cur = opts.get();
-      const on = !!cur;
-      input.value = on ? cur : mid;
+      const on = isSet(cur);
+      const z = on ? zone(cur) : -1;
+      input.value = on ? cur : MID;
       input.classList.toggle("unset", !on);
-      input.style.setProperty("--pct", on ? String((Number(cur) - 1) / (n - 1)) : "0");
-      input.setAttribute("aria-valuetext", on ? opts.labels[Number(cur) - 1] : COPY.notAnswered);
-      out.textContent = on ? opts.labels[Number(cur) - 1] : "";
+      input.style.setProperty("--pct", on ? String(Number(cur) / 100) : "0");
+      input.setAttribute("aria-valuetext", on ? opts.labels[z] : COPY.notAnswered);
       clear.hidden = !on;
+      if (z !== shown) {
+        out.textContent = on ? opts.labels[z] : "";
+        if (on) pop(out);
+        shown = z;
+      }
       if (opts.onSync) opts.onSync(on);
     }
     function commit() {
-      if (opts.get() !== input.value) { opts.set(input.value); pop(out); }
+      if (opts.get() !== input.value) opts.set(input.value);
       sync();
     }
     ["input", "change", "click", "pointerup"].forEach((e) => input.addEventListener(e, commit));
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); commit(); } });
-    input.addEventListener("pointerdown", () => { before = opts.get() || null; });
+    input.addEventListener("pointerdown", () => { const v = opts.get(); before = isSet(v) ? v : null; });
     input.addEventListener("pointercancel", () => { opts.set(before); sync(); });
     sync();
     return { input, out, clear };
@@ -495,7 +499,7 @@
         get: () => levelsOf(q)[o.v],
         set: (v) => {
           const all = Object.assign({}, levelsOf(q));
-          if (v) all[o.v] = v; else delete all[o.v];
+          if (v != null && v !== "") all[o.v] = v; else delete all[o.v];
           setA(q.id, all);
         },
       });

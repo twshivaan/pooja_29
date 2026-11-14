@@ -4,6 +4,7 @@
  *
  * PAGES (at the bottom) says which sections share a page. A section's `groups` are runs of cards.
  * Question types: short, long, three, single, scale5 (slider), sliders, ever.
+ * Sliders run 0–100 and start unanswered; the labels name five zones along the track.
  * `when(a)` decides visibility from the answers so far (sections, groups, questions, options).
  * Stored values are the option `v`; emoji are for display only.
  */
@@ -144,9 +145,9 @@ const SECTIONS = [
         ],
         questions: [
           {
-            id: "funny_upi", type: "short", label: "Your UPI ID, for the prize", sub: "Only used to send your prize.",
+            id: "funny_upi", type: "short", label: "Your UPI ID, for the prize",
+            sub: "For the funniest-photo prize. Only used to send it.",
             afterSlot: "funny", autocomplete: "off", maxLength: 100,
-            when: () => typeof Photos !== "undefined" && Photos.count("funny") > 0,
           },
         ],
       },
@@ -207,23 +208,26 @@ const SECTIONS = [
         questions: [
           {
             id: "emoji", type: "single", style: "emoji", label: `${P} in one emoji`, otherKey: "emoji__other",
-            options: "😂 🥰 😎 🤪 😴 🤓 😇 😈 🥹 🤭 💃 👑 🌸 🦋 ☕ 🍕 🏔️ 📚 🎧 📸 ✨ 🔥 🌈 🐼 🐱 🎀 🧿 🫶 🤯 🙈"
-              .split(" ").map((e) => ({ v: e })),
+            options: [
+              { v: "😊" }, { v: "🥰" }, { v: "😂" }, { v: "🤪" }, { v: "😎" }, { v: "👑" },
+              { v: "😇" }, { v: "🥹" }, { v: "😴" },
+              { v: "😈", when: notFamily }, { v: "😏", when: notFamily }, { v: "🌶️", when: notFamily },
+            ],
           },
         ],
       },
       {
         id: "song",
         questions: [
-          { id: "song", type: "short", label: "A song that's so her" },
-          { id: "song_why", type: "short", label: "Why?", attach: true },
+          { id: "song", type: "short", label: "A song that's so her", required: true },
+          { id: "song_why", type: "short", label: "Why? (optional)", attach: true },
         ],
       },
       {
         id: "character",
         questions: [
-          { id: "character", type: "short", label: "Which movie or series character does she remind you of?" },
-          { id: "character_why", type: "short", label: "Why?", attach: true },
+          { id: "character", type: "short", label: "Which movie or series character does she remind you of?", required: true },
+          { id: "character_why", type: "short", label: "Why? (optional)", attach: true },
         ],
       },
       {
@@ -242,16 +246,11 @@ const SECTIONS = [
             sub: "Slide each one. Skip any you're not sure about.",
             levels: COPY.salaryLevels, otherKey: "salary__other", otherLabel: "Anything else?",
             options: [
-              { v: "Rent & bills", e: "🧾" },
-              { v: "Savings & investments", e: "📈" },
-              { v: "Family", e: "👨‍👩‍👧" },
-              { v: "Food delivery & cafés", e: "🍕" },
-              { v: "Travel & treks", e: "🏔️" },
-              { v: "Shopping", e: "🛍️" },
-              { v: "Makeup & skincare", e: "💄" },
-              { v: "Gadgets", e: "📱" },
-              { v: "Subscriptions (OTT, apps)", e: "📺" },
-              { v: "Gifts for others", e: "🎁" },
+              { v: "Food delivery", label: "Midnight Swiggy & Zomato", e: "🍕" },
+              { v: "Online shopping", label: "\"Add to cart\" therapy", e: "🛍️" },
+              { v: "Skincare", label: "Skincare she uses twice", e: "🧴" },
+              { v: "Coffee", label: "Overpriced coffee", e: "☕" },
+              { v: "Trips", label: "Trips for the 'gram", e: "✈️" },
               { v: "Dating app subscription", e: "💘", when: notFamily },
               { v: "Protection", e: "🛡️", when: notFamily },
             ],
@@ -265,22 +264,12 @@ const SECTIONS = [
             id: "career", type: "single", style: "chips", label: "If not engineering, which career should she have gone for?",
             otherKey: "career__other",
             options: [
-              { v: "Therapist", e: "🧠" },
-              { v: "Singer", e: "🎤" },
-              { v: "Dancer", e: "💃" },
-              { v: "Actor", e: "🎬" },
-              { v: "Teacher or professor", e: "👩‍🏫" },
-              { v: "Chef", e: "👩‍🍳" },
-              { v: "Fashion designer", e: "👗" },
-              { v: "Travel vlogger", e: "✈️" },
-              { v: "Photographer", e: "📸" },
-              { v: "Lawyer", e: "⚖️" },
-              { v: "Doctor", e: "🩺" },
-              { v: "IAS officer", e: "🏛️" },
-              { v: "News anchor", e: "📰" },
-              { v: "RJ", e: "📻" },
-              { v: "Wedding planner", e: "💍" },
               { v: "Stand-up comedian", e: "🎙️" },
+              { v: "Bigg Boss contestant", e: "📺" },
+              { v: "Instagram influencer", e: "🤳" },
+              { v: "Everyone's unpaid therapist", e: "🧠" },
+              { v: "Professional napper", e: "😴" },
+              { v: "Gossip reporter", e: "🗞️" },
               { v: "Other", other: true },
             ],
           },
@@ -296,18 +285,10 @@ const SECTIONS = [
     intro: "Thoda masti, thoda roast 😈",
     groups: [
       {
-        id: "dict",
-        cardClass: "dict",
-        questions: [
-          { id: "dict_word", type: "short", label: `${P} Dictionary: her word or phrase`, example: "\"Bas 5 minute\"" },
-          { id: "dict_meaning", type: "short", label: "What it actually means", example: "minimum 45 minutes", attach: true },
-        ],
-      },
-      {
         id: "roast",
         questions: [
-          { id: "roast", type: "short", label: "Roast her, gently" },
-          { id: "villain_origin", type: "short", label: "Her villain origin story", example: "\"Someone finished her Maggi\"" },
+          { id: "dict_word", type: "short", label: "Her catchphrase: what does she say all the time?", example: "\"Bas 5 minute\"" },
+          { id: "roast", type: "short", label: "Roast her, gently", example: "\"She's so short that…\"" },
         ],
       },
       {
@@ -471,7 +452,7 @@ const SECTIONS = [
       {
         id: "funny",
         questions: [
-          { id: "memory_funny", type: "long", label: "Your funniest or most embarrassing story about her", sub: "We'll only use it lovingly 🤞" },
+          { id: "memory_funny", type: "long", label: "Your funniest or most embarrassing story about her" },
         ],
       },
       {
