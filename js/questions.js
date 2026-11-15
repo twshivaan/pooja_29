@@ -11,7 +11,7 @@
 const P = CONFIG.PERSON_NAME;
 
 const COPY = {
-  welcomeText: `Help us make her birthday unforgettable! Takes about 10–15 minutes. Questions marked * are required, baaki sab optional. And shh, ${P} ko kuch mat batana 🤫`,
+  welcomeText: `Help us make her birthday unforgettable! Takes about 10–15 minutes. Questions marked * are required, baaki sab optional.`,
   welcomeButton: "Chalo, let's go →",
   deadline: (label) => `Last date: ${label}`,
   resumeQ: "Continue where you left off?",
@@ -31,8 +31,8 @@ const COPY = {
   finishWithout: "Finish without them",
   tryAgain: "Try again",
   thanks: (count) => count
-    ? `Done! You're #${count} to join the surprise 🎉 ${P} ko kuch mat batana 🤫`
-    : `Done! You've joined the surprise 🎉 ${P} ko kuch mat batana 🤫`,
+    ? `Done! You're #${count} to join the surprise 🎉`
+    : `Done! You've joined the surprise 🎉`,
   share: "Share on WhatsApp",
   shareText: (label, link) => label
     ? `${P}'s birthday surprise 🎂 Takes 10–15 min, fill it before ${label}: ${link}`
@@ -55,6 +55,11 @@ const COPY = {
   notAnswered: "Not answered",
   otherPlaceholder: "Type it here",
   emojiOther: "Other emoji or word",
+  photoNudge: {
+    title: "Ek photo toh banti hai 📸",
+    text: "You haven't added any photos yet. Even one makes this extra special.",
+    button: "Add photos",
+  },
   photo: {
     add: "Add photo",
     caption: "Caption (optional)",
@@ -140,8 +145,6 @@ const SECTIONS = [
           { id: "funny", label: "Funniest photo of her", sub: "Win ₹50–₹500 if she'd want it deleted 😈" },
           { id: "aesthetic", label: "Most aesthetic, beautiful or cute photo of her" },
           { id: "together", label: "Best photo of the two of you, or a group photo of your gang" },
-          { id: "candid", label: "A candid she doesn't know exists" },
-          { id: "childhood", label: "Childhood photo, or the oldest photo you have of her" },
         ],
         questions: [
           {
@@ -186,11 +189,8 @@ const SECTIONS = [
         questions: [
           { id: "ever_bunk", type: "ever", label: "Bunked a class or skipped work just for fun" },
           { id: "ever_insta_like", type: "ever", label: "Stalked someone's Instagram and accidentally liked an old post" },
-          { id: "ever_crush", type: "ever", label: "Had a crush on a teacher, celebrity or fictional character" },
           { id: "ever_sangeet", type: "ever", label: "Danced at a sangeet like it was her own wedding 💃" },
           { id: "ever_wrong_chat", type: "ever", label: "Sent a message to the wrong chat 🙈" },
-          { id: "ever_mute", type: "ever", label: "Said something on a call thinking she was on mute 🎤" },
-          { id: "ever_shopping", type: "ever", label: "Gone shopping for one thing and come back with ten 🛍️" },
           { id: "ever_maggi", type: "ever", label: "Burnt Maggi 🔥" },
         ],
       },
@@ -288,7 +288,7 @@ const SECTIONS = [
         id: "roast",
         questions: [
           { id: "dict_word", type: "short", label: "Her catchphrase: what does she say all the time?", example: "\"Bas 5 minute\"" },
-          { id: "roast", type: "short", label: "Roast her, gently", example: "\"She's so short that…\"" },
+          { id: "roast", type: "short", label: "Roast her, gently", required: true, example: "\"She's so short that…\"" },
         ],
       },
       {
@@ -307,7 +307,7 @@ const SECTIONS = [
       {
         id: "ask",
         questions: [
-          { id: "ask_her", type: "short", label: "Ask her anything: one question you want her to answer" },
+          { id: "ask_her", type: "short", label: "Ask her anything: one question you want her to answer", required: true },
         ],
       },
     ],

@@ -55,6 +55,7 @@ h1:focus, h1:focus-visible { outline: none; box-shadow: none; }
   max-width: 480px;
   margin: 0 auto;
   padding: 18px 16px calc(40px + env(safe-area-inset-bottom));
+  overflow-x: clip;  /* the page-turn slide must not make the page scroll sideways */
 }
 
 .top {
@@ -320,7 +321,9 @@ textarea.text {
 .slider-clear {
   flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; padding: 0;
   background: none; border: 0; color: var(--muted); font-size: 15px; line-height: 1;
+  position: relative;
 }
+.slider-clear::after { content: ""; position: absolute; inset: -6px; }  /* a finger-sized target around the small ✕ */
 
 /* how-likely meter: range ends until answered, then the chosen label */
 .q-scale .q-label { margin-bottom: 4px; }
@@ -328,10 +331,10 @@ textarea.text {
 .slider-ends { flex: 1; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
 
 /* a set of sliders under one question (salary) */
-.srow { margin-top: 10px; }
-.srow-head { display: flex; align-items: center; gap: 6px; min-height: 32px; }
-.srow-label { flex: 1; min-width: 0; font-weight: 600; font-size: 16px; line-height: 1.25; }
+.srow { margin-top: 14px; }
+.srow-label { font-weight: 600; font-size: 16px; line-height: 1.25; }
 .srow .slider { height: 40px; }
+.srow .slider-foot { margin-top: -4px; }
 .q-sliders .other-box { margin-top: 18px; }
 
 /* ---------- special cards ---------- */
@@ -415,6 +418,10 @@ textarea.text {
   background: #fff; color: var(--ink); border: 1.5px solid var(--ink); border-radius: 8px;
   font-family: var(--hand); font-weight: 700; font-size: 26px;
 }
+
+.nudge { margin-top: 40px; padding: 18px 16px; border: 2px dashed #B9C3D8; border-radius: 10px; background: rgba(255, 255, 255, .7); }
+.nudge-title { font-family: var(--hand); font-weight: 700; font-size: 30px; line-height: 1.1; margin: 0 0 6px; }
+.nudge-text { margin: 0 0 4px; color: var(--muted); font-size: 16px; }
 
 .nav { display: flex; gap: 10px; margin-top: 28px; }
 .btn-back {

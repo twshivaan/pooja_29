@@ -26,6 +26,7 @@
 
   // What is on screen right now: conditional blocks, required questions, the Next button and its hint, timers.
   let live = { conds: [], required: [], next: null, hint: null, timers: [], cards: 0 };
+  let mode = "other";  // "welcome", "form", "fail" (could not send), or "other" (sending, thank-you, message screens)
 
   /* ================= helpers ================= */
 
@@ -161,6 +162,14 @@
     return v == null ? "" : String(v).trim();
   }
 
+  /* The back end takes 5,000 characters per answer; some browsers count emoji as one when limiting a box. */
+  const MAX_VALUE = 5000;
+  function clip(s) {
+    if (s.length <= MAX_VALUE) return s;
+    const c = s.charCodeAt(MAX_VALUE - 1);
+    return s.slice(0, c >= 0xd800 && c <= 0xdbff ? MAX_VALUE - 1 : MAX_VALUE);  // never cut an emoji in half
+  }
+
   /* Field id → value for the Sheet. Anything hidden by routing goes as blank. */
   function exportAnswers() {
     const a = S.answers;
@@ -171,7 +180,7 @@
         const gv = sv && (!g.when || g.when(a));
         (g.questions || []).forEach((q) => {
           const qv = gv && (!q.when || q.when(a));
-          out[q.id] = qv ? serialize(q) : "";
+          out[q.id] = qv ? clip(serialize(q)) : "";
         });
       });
     });
@@ -494,6 +503,9 @@
     const wrap = h("div", { class: "q q-sliders", role: "group", "aria-labelledby": lid }, [groupLabel(q, lid), sub(q)]);
     q.options.filter(optionVisible).forEach((o, i) => {
       const rid = "q-" + q.id + "-" + i;
+      const ends = h("div", { class: "slider-ends", "aria-hidden": "true" }, [
+        h("span", { text: q.levels[0] }), h("span", { text: q.levels[q.levels.length - 1] }),
+      ]);
       const s = slider({
         labelledby: rid, labels: q.levels,
         get: () => levelsOf(q)[o.v],
@@ -502,10 +514,13 @@
           if (v != null && v !== "") all[o.v] = v; else delete all[o.v];
           setA(q.id, all);
         },
+        onSync: (on) => { ends.hidden = on; },
       });
+      // The answer sits under the track, in a row of fixed height, so nothing shifts while a finger is dragging.
       wrap.appendChild(h("div", { class: "srow", "data-v": o.v }, [
-        h("div", { class: "srow-head" }, [h("span", { class: "srow-label", id: rid, text: optText(o) }), s.out, s.clear]),
+        h("div", { class: "srow-label", id: rid, text: optText(o) }),
         s.input,
+        h("div", { class: "slider-foot" }, [ends, s.out, s.clear]),
       ]));
     });
     if (q.otherKey) {
@@ -586,17 +601,78 @@
     return { list, i, item: list[i] };
   }
 
+  /*
+   * The phone's Back button. Each page is a history entry ({ bs: page, prev: the entry under it, n: depth }),
+   * so Back shows the previous page instead of closing the site. If the browser refuses, the on-screen
+   * buttons still work on their own.
+   */
+  function hstate() { try { return history.state || null; } catch (e) { return null; } }
+  function hpush(key) {
+    try {
+      const st = hstate();
+      history.pushState({ bs: key, prev: (st && st.bs) || "welcome", n: ((st && st.n) || 0) + 1 }, "");
+    } catch (e) { /* on-screen navigation only */ }
+  }
+  function hreplace(key) {
+    try {
+      const st = hstate();
+      history.replaceState({ bs: key, prev: (st && st.prev) || null, n: (st && st.n) || 0 }, "");
+    } catch (e) { /* ignore */ }
+  }
+  /* Back to the entry the site was opened on, so Back on the thank-you screen leaves in one go. */
+  function hrewind() {
+    try { const st = hstate(); if (st && st.n > 0) history.go(-st.n); } catch (e) { /* ignore */ }
+  }
+
+  function onPop(e) {
+    if (mode === "other") return;
+    const key = e.state && e.state.bs;
+    const list = pages();
+    const target = list.find((x) => x.key === key);
+    const from = mode === "form" ? current().i : -1;
+    if (mode === "form") saveRemote();
+    if (target) {
+      S.dir = target.i < from ? -1 : 1;
+      S.pos = target.key;
+      Store.set("pos", S.pos);
+      render();
+    } else {
+      S.dir = -1;
+      renderWelcome();
+    }
+  }
+
+  /* The first page that still has an unanswered required question (an older draft, or the phone's Forward button). */
+  function firstGap() {
+    const a = S.answers;
+    const on = (x) => !x.when || x.when(a);
+    return pages().find((pg) => pg.secs.some((sec) => on(sec) && sec.groups.some((g) => on(g) &&
+      (g.questions || []).some((q) => q.required && on(q) && isEmpty(a[q.id]))))) || null;
+  }
+
   function go(delta) {
-    const { list, i } = current();
+    const { list, i, item } = current();
     const nxt = list[i + delta];
     S.dir = delta;
-    if (!nxt) {
-      if (delta > 0) { finish(); return; }
-      renderWelcome(); return;
+    if (!nxt && delta > 0) {
+      const gap = firstGap();
+      if (!gap) { finish(); return; }
+      S.dir = -1;
+      S.pos = gap.key;
+      Store.set("pos", S.pos);
+      hreplace(gap.key);
+      render();
+      setTimeout(scrollToMissing, 60);
+      return;
     }
+    const st = hstate();
+    const viaHistory = delta < 0 && st && st.n > 0 && st.bs === item.key && st.prev === (nxt ? nxt.key : "welcome");
+    if (viaHistory) { history.back(); return; }  // onPop draws the page
+    if (!nxt) { hreplace("welcome"); renderWelcome(); return; }
     saveRemote();
     S.pos = nxt.key;
     Store.set("pos", S.pos);
+    if (delta > 0) hpush(nxt.key); else hreplace(nxt.key);
     render();
   }
 
@@ -617,6 +693,7 @@
     clearLive();
     const { list, i, item } = current();
     if (!item) { renderWelcome(); return; }
+    mode = "form";
     S.pos = item.key;
     setHeader(item, list.length);
     const screen = h("section", { class: "screen" });
@@ -627,7 +704,7 @@
       ]));
       sec.groups.forEach((g) => {
         const gb = h("div", { class: "group" });
-        if (g.heading) gb.appendChild(h("h3", { class: "group-head", text: g.heading }));
+        if (g.heading) gb.appendChild(h(n ? "h3" : "h2", { class: "group-head", text: g.heading }));
         if (g.kind === "photos") renderPhotos(g, gb);
         else renderQuestions(g, gb);
         if (g.when) live.conds.push({ el: gb, when: g.when });
@@ -636,8 +713,29 @@
       if (sec.when) live.conds.push({ el: box, when: sec.when });
       screen.appendChild(box);
     });
-    add(screen, nav(i === list.length - 1));
+    const last = i === list.length - 1;
+    if (last) add(screen, photoNudge(item));
+    add(screen, nav(last));
     show(screen);
+  }
+
+  /* Last page only, and only when no photo has been added: a reminder that opens the photo prompts in place. */
+  function photoNudge(item) {
+    const sec = SECTIONS.find((x) => x.id === "photos");
+    const g = sec && sec.groups.find((x) => x.kind === "photos");
+    if (!g || item.ids.indexOf("photos") >= 0 || Photos.count() > 0) return null;
+    const T = COPY.photoNudge;
+    const box = h("div", { class: "nudge" });
+    const open = h("button", { type: "button", class: "btn-secondary", text: T.button, onclick: () => {
+      const body = h("div", { class: "group" });
+      renderPhotos(g, body);
+      box.replaceChild(body, open);
+      box.removeChild(text);
+      refresh();
+    } });
+    const text = h("p", { class: "nudge-text", text: T.text });
+    add(box, [h("h2", { class: "nudge-title", text: T.title }), text, open]);
+    return box;
   }
 
   function renderPhotos(g, into) {
@@ -657,6 +755,7 @@
 
   function simpleScreen(kids, cls) {
     clearLive();
+    mode = cls === "welcome" ? "welcome" : "other";
     setHeader(null);
     const screen = h("section", { class: "screen solo " + (cls || "") }, kids);
     show(screen);
@@ -671,11 +770,13 @@
       S.started = true;
       S.pos = pages()[0].key;
       Store.set("pos", S.pos);
+      hpush(S.pos);
       render();
     };
     const resume = () => {
       S.dir = 1;
       S.started = true;
+      hpush(current().item.key);
       render();
     };
     const fresh = () => { newResponse(); renderWelcome(); };
@@ -720,6 +821,7 @@
       h("h1", { class: "msg-text", text }),
       actions,
     ], { cls: "msg-card" })], "message");
+    mode = "fail";  // the phone's Back button returns to the form from here
   }
 
   async function finish(skipPhotos) {
@@ -752,6 +854,7 @@
     Store.set("done", true);
     clearDraft();
     renderThanks(true);
+    hrewind();
   }
 
   function clearDraft() {
@@ -818,10 +921,15 @@
     API.onFatal((code) => {
       if (code === "bad_key") { Store.del("key"); S.key = null; renderIncomplete(); }
       else if (code === "closed") renderClosed();
+      hrewind();
     });
 
+    try { history.scrollRestoration = "manual"; } catch (e) { /* ignore */ }
+    try { history.replaceState({ bs: "welcome", prev: null, n: 0 }, ""); } catch (e) { /* ignore */ }
+    window.addEventListener("popstate", onPop);
+
     let key = null;
-    try { key = new URLSearchParams(location.search).get("k"); } catch (e) { key = null; }
+    try { key = (new URLSearchParams(location.search).get("k") || "").trim(); } catch (e) { key = null; }
     if (key) Store.set("key", key);
     else key = Store.get("key");
     if (!key) { renderIncomplete(); return; }
